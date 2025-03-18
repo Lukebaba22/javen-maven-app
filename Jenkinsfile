@@ -1,32 +1,70 @@
+def gv
+
 pipeline {
     agent any
-
-    parameters {
-        choice(name: 'VERSION', choices: ['1.1.0', '1.2.0', '1.3.0'], description: 'Select the version to deploy')
-        booleanParam(name: 'executeTests', defaultValue: true, description: 'Whether to execute tests')
+    tools {
+        maven 'Maven'
     }
-
     stages {
-        stage("build") {
+        stage('increment version') {
             steps {
-                echo 'building the application...'
+                script {
+                    echo 'incrementing app version...'
+                    sh 'mvn build-helper:parse-version versions:set \
+                        -DnewVersion=\\\${parsedVersion.majorVersion}.\\\${parsedVersion.minorVersion}.\\\${parsedVersion.nextIncrementalVersion} \
+                        versions:commit'
+                    def matcher = readFile('pom.xml') =~ '<version>(.+)</version>'
+                    def version = matcher[0][1]
+                    env.IMAGE_NAME = "$version-$BUILD_NUMBER"
+                }
             }
         }
-
-        stage("test") {
-            when {
-                expression { params.executeTests }
-            }
+        stage('build app') {
             steps {
-                echo 'testing the application...'
+                script {
+                    echo 'building the application...'
+                    sh 'mvn clean package'
+                }
             }
         }
-
-        stage("deploy") {
+        stage('build image') {
             steps {
-                echo 'deploying the application...'
-                echo "deploying version ${params.VERSION}"
+                script {
+                    echo "building the docker image..."
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-repo', passwordVariable: 'PASS', usernameVariable: 'USER')]){
+                        sh "docker build -t lukebaba22/website:${IMAGE_NAME} ."
+                        sh 'echo $PASS | docker login -u $USER --password-stdin'
+                        sh "docker push lukebaba22/website:${IMAGE_NAME}"
+                    }
+                }
             }
+        }
+        stage('deploy') {
+            steps {
+                script {
+                    echo 'deploying docker image...'
+                }
+            }
+        }
+        stage('commit version update'){
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'PASS', usernameVariable: 'USER')]){
+                        sh 'git config --global user.email "jenkins@example.com"'
+                        sh 'git config --global user.name "jenkins"'
+
+                        sh 'git status'
+                        sh 'git branch'
+                        sh 'git config --list'
+
+                        sh "git remote set-url origin https://${USER}:${PASS}@github.com/Lukebaba22/javen-maven-app.git"
+                        sh 'git add .'
+                        sh 'git commit -m "ci: version bump"'
+                        sh 'git push origin HEAD:jenkins-jobs'
+                    }
+                }
+            }
+         }
         }
     }
 }
