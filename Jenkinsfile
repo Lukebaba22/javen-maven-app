@@ -1,7 +1,7 @@
 pipeline {
     agent any
     tools {
-        maven 'maven-3.9.9' // Use the correct name of the Maven installation
+        maven 'maven-3.9.9' // Ensure this matches the Maven tool name configured in Jenkins
     }
     stages {
         stage('increment version') {
